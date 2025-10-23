@@ -3,10 +3,9 @@ package service
 import (
 	"binance-proxy/internal/tool"
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 
 	spot "github.com/adshao/go-binance/v2"
 )
@@ -16,6 +15,8 @@ type TickerSrv struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	logger *slog.Logger
 
 	initCtx  context.Context
 	initDone context.CancelFunc
@@ -55,8 +56,10 @@ type Ticker24hr struct {
 	Count              int64  `json:"count"`
 }
 
-func NewTickerSrv(ctx context.Context, si *symbolInterval) *TickerSrv {
-	s := &TickerSrv{si: si}
+func NewTickerSrv(ctx context.Context, logger *slog.Logger, si *symbolInterval) *TickerSrv {
+	logger = logger.With("symbol", si.Symbol, "class", si.Class)
+
+	s := &TickerSrv{si: si, logger: logger}
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.initCtx, s.initDone = context.WithCancel(context.Background())
 
@@ -73,18 +76,19 @@ func (s *TickerSrv) Start() {
 
 			ticker24hrDoneC, ticker24hrstopC, err := s.connectTicker24hr()
 			if err != nil {
-				log.Errorf("%s %s ticker24hr websocket connection error: %s.", s.si.Class, s.si.Symbol, err)
+				s.logger.Error("Ticker24hr websocket connection error", "error", err)
 				continue
 			}
 
 			bookDoneC, bookStopC, err := s.connectTickerBook()
 			if err != nil {
 				bookStopC <- struct{}{}
-				log.Errorf("%s %s bookTicker websocket connection error: %s.", s.si.Class, s.si.Symbol, err)
+				s.logger.Error("BookTicker websocket connection error", "error", err)
 				continue
 			}
 
-			log.Debugf("%s %s ticker24hr and bookTicker websocket connected.", s.si.Class, s.si.Symbol)
+			s.logger.Info("Ticker24hr and BookTicker websocket connected")
+
 			select {
 			case <-s.ctx.Done():
 				bookStopC <- struct{}{}
@@ -96,7 +100,7 @@ func (s *TickerSrv) Start() {
 				bookStopC <- struct{}{}
 			}
 
-			log.Warnf("%s %s ticker24hr or bookTicker websocket disconnected, trying to reconnect.", s.si.Class, s.si.Symbol)
+			s.logger.Warn("Ticker24hr or BookTicker websocket disconnected, trying to reconnect.")
 		}
 	}()
 }
@@ -159,7 +163,8 @@ func (s *TickerSrv) wsHandlerBookTicker(event *spot.WsBookTickerEvent) {
 		AskPrice:    event.BestAskPrice,
 		AskQuantity: event.BestAskQty,
 	}
-	log.Tracef("%s %s bookTicker websocket message received", s.si.Class, s.si.Symbol)
+
+	s.logger.Debug("BookTicker websocket message received", "bidPrice", event.BestBidPrice, "askPrice", event.BestAskPrice)
 }
 
 func (s *TickerSrv) wsHandlerTicker24hr(event *spot.WsMarketStatEvent) {
@@ -191,13 +196,13 @@ func (s *TickerSrv) wsHandlerTicker24hr(event *spot.WsMarketStatEvent) {
 		LastID:             event.LastID,
 		Count:              event.Count,
 	}
-	log.Tracef("%s %s ticker24hr websocket message received", s.si.Class, s.si.Symbol)
+	s.logger.Debug("Ticker24hr websocket message received", "lastPrice", event.LastPrice)
 }
 
 func (s *TickerSrv) errHandler(err error) {
 	if strings.Contains(err.Error(), "context canceled") {
-		log.Warnf("%s %s ticker websocket context canceled, will restart connection.", s.si.Class, s.si.Symbol)
+		s.logger.Warn("Ticker websocket context canceled, will restart connection.", "error", err)
 	} else {
-		log.Errorf("%s %s ticker24hr websocket connection error: %s.", s.si.Class, s.si.Symbol, err)
+		s.logger.Error("Ticker24hr websocket connection error", "error", err)
 	}
 }

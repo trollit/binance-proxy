@@ -4,12 +4,11 @@ import (
 	"binance-proxy/internal/tool"
 	"container/list"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 
 	spot "github.com/adshao/go-binance/v2"
 	futures "github.com/adshao/go-binance/v2/futures"
@@ -35,16 +34,20 @@ type KlinesSrv struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	logger   *slog.Logger
 	initCtx  context.Context
 	initDone context.CancelFunc
 
-	si         *symbolInterval
-	klinesList *list.List
-	klinesArr  []*Kline
+	banDetector *BanDetector
+	si          *symbolInterval
+	klinesList  *list.List
+	klinesArr   []*Kline
 }
 
-func NewKlinesSrv(ctx context.Context, si *symbolInterval) *KlinesSrv {
-	s := &KlinesSrv{si: si}
+func NewKlinesSrv(ctx context.Context, logger *slog.Logger, bd *BanDetector, si *symbolInterval) *KlinesSrv {
+	logger = logger.With("symbol", si.Symbol, "interval", si.Interval, "class", si.Class)
+
+	s := &KlinesSrv{logger: logger, si: si, banDetector: bd}
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.initCtx, s.initDone = context.WithCancel(context.Background())
 
@@ -60,18 +63,18 @@ func (s *KlinesSrv) Start() {
 
 			doneC, stopC, err := s.connect()
 			if err != nil {
-				log.Errorf("%s %s@%s kline websocket connection error: %s.", s.si.Class, s.si.Symbol, s.si.Interval, err)
+				s.logger.Error("Kline websocket connection error", "error", err)
 				continue
 			}
 
-			log.Debugf("%s %s@%s kline websocket connected.", s.si.Class, s.si.Symbol, s.si.Interval)
+			s.logger.Debug("Kline websocket connected")
 			select {
 			case <-s.ctx.Done():
 				stopC <- struct{}{}
 				return
 			case <-doneC:
 			}
-			log.Warnf("%s %s@%s kline websocket disconnected, trying to reconnect.", s.si.Class, s.si.Symbol, s.si.Interval)
+			s.logger.Warn("Kline websocket disconnected, trying to reconnect")
 		}
 	}()
 }
@@ -82,9 +85,9 @@ func (s *KlinesSrv) Stop() {
 
 func (s *KlinesSrv) errHandler(err error) {
 	if strings.Contains(err.Error(), "context canceled") {
-		log.Warnf("%s %s@%s kline websocket context canceled, will restart connection.", s.si.Class, s.si.Symbol, s.si.Interval)
+		s.logger.Warn("Kline websocket context canceled, will restart connection.")
 	} else {
-		log.Errorf("%s %s@%s kline websocket connection error: %s connected.", s.si.Class, s.si.Symbol, s.si.Interval, err)
+		s.logger.Error("Kline websocket connection error", "err", err)
 	}
 }
 
@@ -106,9 +109,8 @@ func (s *KlinesSrv) connect() (doneC, stopC chan struct{}, err error) {
 
 func (s *KlinesSrv) initKlineData() {
 	// Check if API is banned
-	banDetector := GetBanDetector()
-	if banDetector.IsBanned(s.si.Class) {
-		log.Debugf("%s %s@%s kline initialization skipped due to API ban", s.si.Class, s.si.Symbol, s.si.Interval)
+	if s.banDetector.IsBanned(s.si.Class) {
+		s.logger.Debug("Kline initialization skipped due to API ban")
 
 		// Create empty klines list to prevent repeated initialization attempts
 		s.klinesList = list.New()
@@ -118,11 +120,11 @@ func (s *KlinesSrv) initKlineData() {
 
 	var klines interface{}
 	var err error
-	log.Debugf("%s %s@%s kline initialization through REST.", s.si.Class, s.si.Symbol, s.si.Interval)
+	s.logger.Debug("Kline initialization through REST.")
 	for d := tool.NewDelayIterator(); ; d.Delay() {
 		// Check ban status before each attempt
-		if banDetector.IsBanned(s.si.Class) {
-			log.Debugf("%s %s@%s kline initialization stopped due to API ban", s.si.Class, s.si.Symbol, s.si.Interval)
+		if s.banDetector.IsBanned(s.si.Class) {
+			s.logger.Debug("Kline initialization stopped due to API ban")
 			s.klinesList = list.New()
 			defer s.initDone()
 			return
@@ -148,15 +150,15 @@ func (s *KlinesSrv) initKlineData() {
 		}
 
 		// Check for bans (resp might be nil for SDK calls, so we check err)
-		if banDetector.CheckResponse(s.si.Class, resp, err) {
-			log.Debugf("%s %s@%s kline initialization stopped due to detected ban", s.si.Class, s.si.Symbol, s.si.Interval)
+		if s.banDetector.CheckResponse(s.si.Class, resp, err) {
+			s.logger.Debug("Kline initialization stopped due to detected ban")
 			s.klinesList = list.New()
 			defer s.initDone()
 			return
 		}
 
 		if err != nil {
-			log.Errorf("%s %s@%s kline initialization via REST failed, error: %s.", s.si.Class, s.si.Symbol, s.si.Interval, err)
+			s.logger.Error("Kline initialization via REST retrying...")
 			continue
 		}
 
@@ -206,6 +208,7 @@ func (s *KlinesSrv) initKlineData() {
 }
 
 func (s *KlinesSrv) wsHandler(event interface{}) {
+
 	if s.klinesList == nil {
 		s.initKlineData()
 	}
@@ -242,7 +245,7 @@ func (s *KlinesSrv) wsHandler(event interface{}) {
 		}
 	}
 
-	log.Tracef("%s %s@%s kline websocket message received for open timestamp %d", s.si.Class, s.si.Symbol, s.si.Interval, k.OpenTime)
+	s.logger.Debug("Kline websocket message received", "openTime", k.OpenTime)
 
 	if s.klinesList.Back().Value.(*Kline).OpenTime < k.OpenTime {
 		s.klinesList.PushBack(k)

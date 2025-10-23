@@ -5,8 +5,10 @@ import (
 	"binance-proxy/internal/logcache"
 	"binance-proxy/internal/service"
 	"context"
+	"errors"
 	"fmt"
 	stdlog "log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,13 +18,12 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/jessevdk/go-flags"
-	log "github.com/sirupsen/logrus"
 )
 
-func startProxy(ctx context.Context, port int, class service.Class, disablefakekline bool, alwaysshowforwards bool) {
+func startProxy(ctx context.Context, logger *slog.Logger, bd *service.BanDetector, port int, class service.Class, disablefakekline bool, alwaysshowforwards bool, errChan chan<- error) {
 	mux := http.NewServeMux()
 	address := fmt.Sprintf(":%d", port)
-	mux.HandleFunc("/", handler.NewHandler(ctx, class, !disablefakekline, alwaysshowforwards))
+	mux.HandleFunc("/", handler.NewHandler(ctx, logger, bd, class, !disablefakekline, alwaysshowforwards))
 
 	// Create an HTTP server with a custom ErrorLog that suppresses repeated lines
 	srv := &http.Server{
@@ -38,9 +39,10 @@ func startProxy(ctx context.Context, port int, class service.Class, disablefakek
 		),
 	}
 
-	log.Infof("%s websocket proxy starting on port %d.", class, port)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("%s websocket proxy start failed (error: %s).", class, err)
+	logger.Info("websocket proxy starting", "class", class, "port", port)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("websocket proxy start failed", "class", class, "error", err)
+		errChan <- fmt.Errorf("%s proxy failed: %w", class, err)
 	}
 }
 
@@ -74,22 +76,19 @@ var (
 )
 
 func main() {
-	log.SetFormatter(&log.TextFormatter{
-		DisableColors: true,
-		FullTimestamp: true,
-	})
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
 
-	// Route logcache output through logrus for consistent formatting/levels
 	logcache.SetLoggerHook(func(level, msg string) {
 		switch level {
 		case "warn":
-			log.Warn(msg)
+			logger.Warn(msg)
 		case "error":
-			log.Error(msg)
+			logger.Error(msg)
 		case "info":
-			log.Info(msg)
+			logger.Info(msg)
 		default:
-			log.Print(msg)
+			logger.Info(msg)
 		}
 	})
 	logcache.SetWriterHook(func(msg string) {
@@ -97,52 +96,73 @@ func main() {
 		if len(msg) > 0 && msg[len(msg)-1] == '\n' {
 			msg = msg[:len(msg)-1]
 		}
-		log.Warnf("http: %s", msg)
+
+		logger.Warn("http request", "msg", msg)
 	})
 
-	log.Infof("Binance proxy version %s, build time %s", Version, Buildtime)
+	logger.Info("Binance proxy version", "version", Version, "build", Buildtime)
 
 	if _, err := parser.Parse(); err != nil {
 		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
 			os.Exit(0)
 		} else {
-			log.Fatalf("%s - %s", err, flagsErr.Type)
+			logger.Error("failed parsing flags", "error", err, "type", flagsErr.Type)
 		}
 	}
-
-	if len(config.Verbose) >= 2 {
-		log.SetLevel(log.TraceLevel)
-	} else if len(config.Verbose) == 1 {
-		log.SetLevel(log.DebugLevel)
-	} else {
-		log.SetLevel(log.InfoLevel)
-	}
-
-	if log.GetLevel() > log.InfoLevel {
-		log.Infof("Set level to %s", log.GetLevel())
-	}
-
 	if config.DisableSpot && config.DisableFutures {
-		log.Fatal("can't start if both SPOT and FUTURES are disabled!")
+		logger.Error("can't start if both SPOT and FUTURES are disabled!")
+		os.Exit(1)
 	}
 
 	if !config.DisableFakeKline {
-		log.Infof("Fake candles are enabled for faster processing, the feature can be disabled with --disable-fake-candles or -c")
+		logger.Info("Fake candles are enabled for faster processing, the feature can be disabled with --disable-fake-candles or -c")
 	}
 
 	if config.AlwaysShowForwards {
-		log.Infof("Always show forwards is enabled, all API requests, that can't be served from websockets cached will be logged.")
+		logger.Info("Always show forwards is enabled, all API requests, that can't be served from websockets cached will be logged.")
 	}
 
 	go handleSignal()
 
-	if !config.DisableSpot {
-		go startProxy(ctx, config.SpotAddress, service.SPOT, config.DisableFakeKline, config.AlwaysShowForwards)
-	}
-	if !config.DisableFutures {
-		go startProxy(ctx, config.FuturesAddress, service.FUTURES, config.DisableFakeKline, config.AlwaysShowForwards)
-	}
-	<-ctx.Done()
+	// Channel to collect errors from proxy goroutines
+	errChan := make(chan error, 2) // Buffer for up to 2 proxies
+	var proxyCount int
 
-	log.Info("SIGINT received, aborting ...")
+	banDetector := service.NewBanDetector(logger)
+
+	if !config.DisableSpot {
+		proxyCount++
+		go startProxy(ctx, logger, banDetector, config.SpotAddress, service.SPOT, config.DisableFakeKline, config.AlwaysShowForwards, errChan)
+	}
+
+	if !config.DisableFutures {
+		proxyCount++
+		go startProxy(ctx, logger, banDetector, config.FuturesAddress, service.FUTURES, config.DisableFakeKline, config.AlwaysShowForwards, errChan)
+	}
+
+	// Wait for either context cancellation or errors from proxies
+	var collectedErrors []error
+	done := false
+
+	for !done {
+		select {
+		case <-ctx.Done():
+			logger.Info("SIGINT received, aborting ...")
+			done = true
+		case err := <-errChan:
+			if err != nil {
+				collectedErrors = append(collectedErrors, err)
+				// If all proxies have failed, exit
+				if len(collectedErrors) >= proxyCount {
+					done = true
+				}
+			}
+		}
+	}
+
+	// Log any collected errors
+	if len(collectedErrors) > 0 {
+		combinedErr := errors.Join(collectedErrors...)
+		logger.Error("Proxy errors occurred", "error", combinedErr)
+	}
 }

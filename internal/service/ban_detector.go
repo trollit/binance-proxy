@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -26,6 +27,8 @@ var bufferPool = sync.Pool{
 
 type BanDetector struct {
 	mu sync.RWMutex
+
+	logger *slog.Logger
 
 	// Ban status per class
 	spotBanned    bool
@@ -54,10 +57,12 @@ type BanDetector struct {
 	futuresBackoffCount int
 }
 
-var globalBanDetector = &BanDetector{}
-
-func GetBanDetector() *BanDetector {
-	return globalBanDetector
+func NewBanDetector(logger *slog.Logger) *BanDetector {
+	return &BanDetector{
+		spotWeightReset:    time.Now().Truncate(time.Minute).Add(time.Minute),
+		futuresWeightReset: time.Now().Truncate(time.Minute).Add(time.Minute),
+		logger:             logger,
+	}
 }
 
 func (bd *BanDetector) IsBanned(class Class) bool {

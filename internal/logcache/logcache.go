@@ -35,15 +35,18 @@ func LogOncePerDuration(level, msg string) {
 	key := Normalize(msg)
 	cacheLock.Lock()
 	defer cacheLock.Unlock()
+
 	last, found := cache[key]
 	if found && time.Since(last) < SuppressDuration {
 		return
 	}
+
 	cache[key] = time.Now()
 	if loggerHook != nil {
 		loggerHook(level, msg)
 		return
 	}
+
 	// Default to standard logger if no hook set
 	switch level {
 	case "warn":
@@ -78,15 +81,18 @@ func (w *suppressingWriter) Write(p []byte) (int, error) {
 		// Pretend we wrote it to avoid backpressure; drop the line.
 		return len(p), nil
 	}
+
 	cache[key] = time.Now()
 	cacheLock.Unlock()
 	if writerHook != nil {
 		writerHook(msg)
 		return len(p), nil
 	}
+
 	if w.next != nil {
 		return w.next.Write(p)
 	}
+
 	// Nothing to write to but not an error; pretend success
 	return len(p), nil
 }

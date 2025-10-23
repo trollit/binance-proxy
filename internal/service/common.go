@@ -25,6 +25,7 @@ type symbolInterval struct {
 	Symbol   string
 	Interval string
 }
+
 type Class string
 
 var SPOT Class = "SPOT"
