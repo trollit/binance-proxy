@@ -2,14 +2,13 @@ package service
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
-	"binance-proxy/internal/tool"
-
-	"io"
+	"github.com/stash86/binance-proxy/internal/tool"
 )
 
 type ExchangeInfoSrv struct {
@@ -29,7 +28,7 @@ type ExchangeInfoSrv struct {
 	exchangeInfo []byte
 }
 
-// HTTP client pool for connection reuse
+// HTTP client pool for connection reuse.
 var (
 	httpClientOnce sync.Once
 	httpClient     *http.Client
@@ -88,7 +87,7 @@ func (s *ExchangeInfoSrv) Start() {
 	}()
 }
 
-// Nothing to do
+// Nothing to do.
 func (s *ExchangeInfoSrv) Stop() {}
 
 func (s *ExchangeInfoSrv) GetExchangeInfo() []byte {
@@ -117,10 +116,14 @@ func (s *ExchangeInfoSrv) refreshExchangeInfo() error {
 	var url string
 	if s.si.Class == SPOT {
 		url = "https://api.binance.com/api/v3/exchangeInfo"
-		RateWait(s.ctx, s.si.Class, http.MethodGet, "/api/v3/exchangeInfo", nil)
+		if err := RateWait(s.ctx, s.si.Class, http.MethodGet, "/api/v3/exchangeInfo", nil); err != nil {
+			return err
+		}
 	} else {
 		url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-		RateWait(s.ctx, s.si.Class, http.MethodGet, "/fapi/v1/exchangeInfo", nil)
+		if err := RateWait(s.ctx, s.si.Class, http.MethodGet, "/fapi/v1/exchangeInfo", nil); err != nil {
+			return err
+		}
 	}
 
 	// Use pooled HTTP client instead of http.Get()

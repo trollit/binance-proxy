@@ -1,23 +1,22 @@
 package main
 
 import (
-	"binance-proxy/internal/handler"
-	"binance-proxy/internal/logcache"
-	"binance-proxy/internal/service"
 	"context"
 	"errors"
 	"fmt"
 	stdlog "log"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	_ "net/http/pprof"
-
 	"github.com/jessevdk/go-flags"
+	"github.com/stash86/binance-proxy/internal/handler"
+	"github.com/stash86/binance-proxy/internal/logcache"
+	"github.com/stash86/binance-proxy/internal/service"
 )
 
 func startProxy(ctx context.Context, logger *slog.Logger, bd *service.BanDetector, port int, class service.Class, disablefakekline bool, alwaysshowforwards bool, errChan chan<- error) {

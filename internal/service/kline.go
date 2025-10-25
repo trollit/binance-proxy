@@ -1,7 +1,6 @@
 package service
 
 import (
-	"binance-proxy/internal/tool"
 	"container/list"
 	"context"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 
 	spot "github.com/adshao/go-binance/v2"
 	futures "github.com/adshao/go-binance/v2/futures"
+	"github.com/stash86/binance-proxy/internal/tool"
 )
 
 type Kline struct {
@@ -132,17 +132,23 @@ func (s *KlinesSrv) initKlineData() {
 
 		var resp *http.Response
 		if s.si.Class == SPOT {
-			RateWait(s.ctx, s.si.Class, http.MethodGet, "/api/v3/klines", url.Values{
+			if err := RateWait(s.ctx, s.si.Class, http.MethodGet, "/api/v3/klines", url.Values{
 				"limit": []string{"1000"},
-			})
+			}); err != nil {
+				s.logger.Error("Rate limit wait failed", "error", err)
+				continue
+			}
 			client := spot.NewClient("", "")
 			klines, err = client.NewKlinesService().
 				Symbol(s.si.Symbol).Interval(s.si.Interval).Limit(1000).
 				Do(s.ctx)
 		} else {
-			RateWait(s.ctx, s.si.Class, http.MethodGet, "/fapi/v1/klines", url.Values{
+			if err := RateWait(s.ctx, s.si.Class, http.MethodGet, "/fapi/v1/klines", url.Values{
 				"limit": []string{"1000"},
-			})
+			}); err != nil {
+				s.logger.Error("Rate limit wait failed", "error", err)
+				continue
+			}
 			client := futures.NewClient("", "")
 			klines, err = client.NewKlinesService().
 				Symbol(s.si.Symbol).Interval(s.si.Interval).Limit(1000).
@@ -208,7 +214,6 @@ func (s *KlinesSrv) initKlineData() {
 }
 
 func (s *KlinesSrv) wsHandler(event interface{}) {
-
 	if s.klinesList == nil {
 		s.initKlineData()
 	}

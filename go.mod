@@ -1,13 +1,10 @@
-module binance-proxy
+module github.com/stash86/binance-proxy
 
-go 1.23.0
-
-toolchain go1.24.4
+go 1.25.3
 
 require (
 	github.com/adshao/go-binance/v2 v2.8.2
 	github.com/jessevdk/go-flags v1.6.1
-	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/time v0.12.0
 )
 

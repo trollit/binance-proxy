@@ -1,0 +1,105 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bodyclose
+    - copyloopvar
+    - depguard
+    - dogsled
+    - errcheck
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - goprintffuncname
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - staticcheck
+    - thelper
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+  settings:
+    depguard:
+      rules:
+        main:
+          allow:
+            - $gostd
+            - go.trollit.tech/binance-proxy
+            - github.com/adshao/go-binance
+            - github.com/jessevdk/go-flags
+            - golang.org/x/time/rate
+            - github.com/samber/slog-multi
+            - google.golang.org/grpc
+            - go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
+            - github.com/go-slog/otelslog
+            - go.opentelemetry.io/otel
+            - github.com/stash86/binance-proxy
+    godot:
+      scope: toplevel
+      exclude:
+        - ^ \+.*
+        - ^ ANCHOR.*
+    gosec:
+      excludes:
+        - G307
+        - G108
+    importas:
+      no-unaliased: true
+    nolintlint:
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+        - name: unused-parameter
+          disabled: true
+    tagliatelle:
+      case:
+        rules:
+          json: goCamel
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(go.trollit.tech/binance-proxy)
+    goimports:
+      local-prefixes:
+        - go.trollit.tech/binance-proxy
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"binance-proxy/internal/logcache"
-	"binance-proxy/internal/service"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,9 +13,22 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/stash86/binance-proxy/internal/logcache"
+	"github.com/stash86/binance-proxy/internal/service"
 )
 
-// bufferPool implements httputil.BufferPool interface
+const (
+	APIKlinesPath    = "/api/v3/klines"
+	FAPIKlinesPath   = "/fapi/v1/klines"
+	APIDepthPath     = "/api/v3/depth"
+	FAPIDepthPath    = "/fapi/v1/depth"
+	APITickerPath    = "/api/v3/ticker/24hr"
+	APIExchangePath  = "/api/v3/exchangeInfo"
+	FAPIExchangePath = "/fapi/v1/exchangeInfo"
+)
+
+// bufferPool implements httputil.BufferPool interface.
 type bufferPool struct {
 	pool sync.Pool
 }
@@ -25,7 +36,7 @@ type bufferPool struct {
 func (bp *bufferPool) Get() []byte {
 	if bp.pool.New == nil {
 		bp.pool.New = func() interface{} {
-			buf := make([]byte, 32*1024) // 32KB buffer
+			buf := make([]byte, 32*1024) // 32KB buffer.
 			return &buf
 		}
 	}
@@ -109,7 +120,7 @@ func (s *Handler) Router(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-// HTTP client with connection pooling for reverse proxy
+// HTTP client with connection pooling for reverse proxy.
 var (
 	proxyHTTPClientOnce sync.Once
 	proxyHTTPClient     *http.Client
@@ -117,20 +128,20 @@ var (
 
 func getProxyHTTPClient(logger *slog.Logger) *http.Client {
 	proxyHTTPClientOnce.Do(func() {
-		// Create a new transport each time to avoid concurrent modification issues
+		// Create a new transport each time to avoid concurrent modification issues.
 		transport := &http.Transport{
 			MaxIdleConns:        200,
 			MaxIdleConnsPerHost: 20,
 			IdleConnTimeout:     90 * time.Second,
 			DisableCompression:  false,
 			ForceAttemptHTTP2:   true,
-			// Connection pooling settings for high throughput
+			// Connection pooling settings for high throughput.
 			MaxConnsPerHost: 50,
 		}
 
 		proxyHTTPClient = &http.Client{
 			Transport: transport,
-			Timeout:   60 * time.Second, // Longer timeout for proxy requests
+			Timeout:   60 * time.Second, // Longer timeout for proxy requests.
 		}
 
 		if proxyHTTPClient == nil {
@@ -156,13 +167,13 @@ func getProxyHTTPClient(logger *slog.Logger) *http.Client {
 		}
 	}
 
-	// Double-check transport is not nil and clone it to avoid concurrent modification
+	// Double-check transport is not nil and clone it to avoid concurrent modification.
 	if proxyHTTPClient.Transport == nil {
 		logger.Error("HTTP client transport is nil, fixing with default transport")
 		proxyHTTPClient.Transport = http.DefaultTransport
 	}
 
-	// Return a copy of the client with a cloned transport to avoid concurrent modifications
+	// Return a copy of the client with a cloned transport to avoid concurrent modifications.
 	transport := proxyHTTPClient.Transport
 	if ht, ok := transport.(*http.Transport); ok {
 		transport = ht.Clone()
@@ -177,24 +188,6 @@ func getProxyHTTPClient(logger *slog.Logger) *http.Client {
 func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 	logger := s.logger.With("method", r.Method, "uri", r.RequestURI, "remote", r.RemoteAddr, "class", s.class)
 
-	// Validate handler state
-	if s == nil {
-		logger.Error("Handler is nil in reverseProxy")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if w == nil {
-		logger.Error("ResponseWriter is nil in reverseProxy")
-		return
-	}
-
-	if r == nil {
-		logger.Error("Request is nil in reverseProxy")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
 	// Check if context is cancelled
 	if s.ctx != nil {
 		select {
@@ -203,7 +196,7 @@ func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
 			return
 		default:
-			// Context is still valid, continue
+			// Context is still valid, continue.
 		}
 	}
 
@@ -225,7 +218,11 @@ func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 		logger.Debug(msg)
 	}
 
-	service.RateWait(s.ctx, s.class, r.Method, r.URL.Path, r.URL.Query())
+	if err := service.RateWait(s.ctx, s.class, r.Method, r.URL.Path, r.URL.Query()); err != nil {
+		logcache.LogOncePerDuration("error", fmt.Sprintf("Rate wait failed for %s: %v", s.class, err))
+		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
 	// Use hardcoded endpoints (current working version)
 	var u *url.URL
@@ -307,11 +304,11 @@ func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 				}
 				var body []byte
 				switch resp.Request.URL.Path {
-				case "/api/v3/klines", "/fapi/v1/klines":
+				case APIKlinesPath, FAPIKlinesPath:
 					body = []byte("[]")
-				case "/api/v3/depth", "/fapi/v1/depth":
+				case APIDepthPath, FAPIDepthPath:
 					body = []byte(`{"lastUpdateId":0,"bids":[],"asks":[]}`)
-				case "/api/v3/ticker/24hr":
+				case APITickerPath:
 					body = []byte("{}")
 				default:
 					body = []byte("{}")
@@ -422,7 +419,7 @@ func (s *Handler) returnEmptyResponse(w http.ResponseWriter, r *http.Request) {
 
 	// Return 429 to signal clients to slow down/back off
 	w.WriteHeader(http.StatusTooManyRequests)
-	w.Write(response)
+	_, _ = w.Write(response)
 }
 
 func (s *Handler) status(w http.ResponseWriter) {
@@ -432,7 +429,12 @@ func (s *Handler) status(w http.ResponseWriter) {
 		s.logger.Warn("Status endpoint called but context is canceled")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte(`{"error": "service shutting down", "status": "unavailable"}`))
+
+		_, err := w.Write([]byte(`{"error": "service shutting down", "status": "unavailable"}`))
+		if err != nil {
+			s.logger.Error("Failed to write shutdown status response", "err", err)
+		}
+
 		return
 	default:
 		// Context is still valid, proceed normally
@@ -466,7 +468,9 @@ func (s *Handler) status(w http.ResponseWriter) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode status response", "err", err)
+	}
 }
 
 func (s *Handler) restart(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +478,12 @@ func (s *Handler) restart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "only GET method allowed", "status": "failed"}`))
+
+		_, err := w.Write([]byte(`{"error": "only GET method allowed", "status": "failed"}`))
+		if err != nil {
+			s.logger.Error("Failed to write method not allowed response", "err", err)
+		}
+
 		return
 	}
 

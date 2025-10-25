@@ -18,7 +18,7 @@ var (
 	timestampRegexp = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?`)
 	quotedRegexp    = regexp.MustCompile(`"[^"]*"`)
 
-	// Optional hooks for unified logging backends
+	// Optional hooks for unified logging backends.
 	loggerHook func(level, msg string)
 	writerHook func(msg string)
 )

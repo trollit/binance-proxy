@@ -13,15 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"binance-proxy/internal/logcache"
-
-	log "github.com/sirupsen/logrus"
+	"github.com/stash86/binance-proxy/internal/logcache"
 )
 
-// Buffer pool for reusing byte buffers to reduce GC pressure
+// Buffer pool for reusing byte buffers to reduce GC pressure.
 var bufferPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 0, 1024) // Start with 1KB capacity
+	New: func() any {
+		buf := make([]byte, 0, 1024) // Start with 1KB capacity
+		return &buf
 	},
 }
 
@@ -77,7 +76,7 @@ func (bd *BanDetector) IsBanned(class Class) bool {
 		} else if bd.spotBanned && now.After(bd.spotRecoveryTime) {
 			// Recovery time passed, clear ban
 			bd.spotBanned = false
-			log.Infof("%s API ban lifted, resuming normal operation", class)
+			bd.logger.Info("%s API ban lifted, resuming normal operation", "class", class)
 		}
 	} else {
 		if bd.futuresBanned && now.Before(bd.futuresRecoveryTime) {
@@ -85,7 +84,7 @@ func (bd *BanDetector) IsBanned(class Class) bool {
 		} else if bd.futuresBanned && now.After(bd.futuresRecoveryTime) {
 			// Recovery time passed, clear ban
 			bd.futuresBanned = false
-			log.Infof("%s API ban lifted, resuming normal operation", class)
+			bd.logger.Info("%s API ban lifted, resuming normal operation", "class", class)
 		}
 	}
 
@@ -123,9 +122,9 @@ func (bd *BanDetector) CheckResponse(class Class, resp *http.Response, err error
 			if banUntil.IsZero() {
 				// If both methods fail, use 10 minutes default
 				banUntil = now.Add(10 * time.Minute)
-				log.Errorf("%s API IP banned (418), no expiry found, suspending requests for 10 minutes until %v", class, banUntil)
+				bd.logger.Error("API Banned (418), no expiry found, suspending requests for 10 minutes until", "class", class, "banUntil", banUntil)
 			} else {
-				log.Errorf("%s API IP banned (418), suspending requests until %v", class, banUntil)
+				bd.logger.Error("API IP banned (418), suspending requests until", "class", class, "banUntil", banUntil)
 			}
 			bd.setBanned(class, banUntil)
 			bd.resetBackoffCount(class) // Reset backoff on explicit ban
@@ -135,16 +134,16 @@ func (bd *BanDetector) CheckResponse(class Class, resp *http.Response, err error
 			if banUntil.IsZero() {
 				// Fallback to 1 minute default
 				banUntil = now.Add(1 * time.Minute)
-				log.Warnf("%s API rate limited (429), no Retry-After header, suspending requests for 1 minute until %v", class, banUntil)
+				bd.logger.Warn("API rate limited (429), no Retry-After header, suspending requests for 1 minute until", "class", class, "banUntil", banUntil)
 			} else {
-				log.Warnf("%s API rate limited (429), suspending requests until %v", class, banUntil)
+				bd.logger.Warn("API rate limited (429), suspending requests until", "class", class, "banUntil", banUntil)
 			}
 			bd.setBanned(class, banUntil)
 			bd.resetBackoffCount(class) // Reset backoff on explicit rate limit
 			return true
 		case 403: // Forbidden
 			bd.setBanned(class, now.Add(5*time.Minute))
-			log.Warnf("%s API access forbidden (403), suspending requests until %v", class, bd.getRecoveryTime(class))
+			bd.logger.Warn("API access forbidden (403), suspending requests until", "class", class, "banUntil", bd.getRecoveryTime(class))
 			return true
 		}
 	}
@@ -155,7 +154,6 @@ func (bd *BanDetector) CheckResponse(class Class, resp *http.Response, err error
 		if strings.Contains(errorMsg, "connection refused") ||
 			strings.Contains(errorMsg, "timeout") ||
 			strings.Contains(errorMsg, "no route to host") {
-
 			bd.incrementErrorCount(class, now)
 
 			// If too many errors in short time, use exponential backoff
@@ -164,7 +162,7 @@ func (bd *BanDetector) CheckResponse(class Class, resp *http.Response, err error
 				backoffDuration := bd.getExponentialBackoff(class)
 				bd.setBanned(class, now.Add(backoffDuration))
 				bd.resetErrorCount(class)
-				log.Warnf("%s API connection issues detected (%d errors), suspending requests for %v until %v", class, errorCount, backoffDuration, bd.getRecoveryTime(class))
+				bd.logger.Warn("API connection issues detected, suspending requests", "class", class, "errorCount", errorCount, "backoffDuration", backoffDuration, "banUntil", bd.getRecoveryTime(class))
 				return true
 			}
 		}
@@ -183,12 +181,11 @@ func (bd *BanDetector) parseBanExpiryNonDestructive(resp *http.Response) time.Ti
 	if resp == nil || resp.Body == nil {
 		return time.Time{}
 	}
-
 	// Get buffer from pool
-	buf := bufferPool.Get().([]byte)
+	bufPtr := bufferPool.Get().(*[]byte)
 	defer func() {
-		buf = buf[:0] // Reset length but keep capacity
-		bufferPool.Put(buf)
+		*bufPtr = (*bufPtr)[:0] // Reset length but keep capacity
+		bufferPool.Put(bufPtr)
 	}()
 
 	// Read response body without consuming it
@@ -214,7 +211,7 @@ func (bd *BanDetector) parseBanExpiryNonDestructive(resp *http.Response) time.Ti
 			if timestamp, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
 				// Convert milliseconds to seconds if needed
 				if timestamp > 9999999999 {
-					timestamp = timestamp / 1000
+					timestamp /= 1000
 				}
 				return time.Unix(timestamp, 0)
 			}
@@ -297,7 +294,15 @@ func (bd *BanDetector) getExponentialBackoff(class Class) time.Duration {
 	}
 
 	// Exponential backoff: 2^n seconds, max 10 minutes
-	duration := time.Duration(1<<uint(backoffCount)) * time.Second
+	// Ensure backoffCount is non-negative and within safe range before conversion
+	if backoffCount < 0 {
+		backoffCount = 0
+	}
+	if backoffCount > 30 { // Prevent overflow in bit shift
+		backoffCount = 30
+	}
+
+	duration := time.Duration(1<<backoffCount) * time.Second
 	maxDuration := 10 * time.Minute
 	if duration > maxDuration {
 		duration = maxDuration

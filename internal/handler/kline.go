@@ -20,7 +20,12 @@ func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 		logger.Debug("klines request returning empty due to API ban")
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Data-Source", "ban-protection")
-		w.Write([]byte("[]"))
+
+		_, err := w.Write([]byte("[]"))
+		if err != nil {
+			s.logger.Error("Failed to write ban protection response", "err", err)
+		}
+
 		return
 	}
 
@@ -122,5 +127,7 @@ func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write(buf.Bytes())
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		logger.Error("Failed to write response", "err", err)
+	}
 }

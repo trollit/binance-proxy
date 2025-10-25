@@ -37,5 +37,8 @@ func (s *Handler) ticker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write(buf.Bytes())
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		s.logger.Error("Failed to write response", "error", err)
+		return
+	}
 }

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"binance-proxy/internal/tool"
 	"context"
 	"log/slog"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	spot "github.com/adshao/go-binance/v2"
 	futures "github.com/adshao/go-binance/v2/futures"
+	"github.com/stash86/binance-proxy/internal/tool"
 )
 
 type DepthSrv struct {

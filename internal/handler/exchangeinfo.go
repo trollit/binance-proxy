@@ -14,5 +14,8 @@ func (s *Handler) exchangeInfo(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Data-Source", "cache")
 
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }
