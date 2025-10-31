@@ -14,63 +14,89 @@ var (
 	FuturesLimiter = rate.NewLimiter(40, 2400)
 )
 
-func RateWait(ctx context.Context, class Class, method, path string, query url.Values) {
-	weight := 1
+func getKlinesWeight(limit int) int {
+	switch {
+	case limit >= 1 && limit < 100:
+		return 1
+	case limit >= 100 && limit < 500:
+		return 2
+	case limit >= 500 && limit <= 1000:
+		return 5
+	case limit > 1000 && limit <= 1500:
+		return 10
+	default:
+		return 5
+	}
+}
+
+func getSpotDepthWeight(limit int) int {
+	switch {
+	case limit >= 5 && limit <= 100:
+		return 1
+	case limit >= 100 && limit < 500:
+		return 2
+	case limit == 500:
+		return 5
+	case limit == 1000:
+		return 10
+	case limit == 5000:
+		return 50
+	default:
+		return 1
+	}
+}
+
+func getFuturesDepthWeight(limit int) int {
+	switch {
+	case limit >= 5 && limit <= 50:
+		return 2
+	case limit == 100:
+		return 5
+	case limit == 500:
+		return 10
+	case limit == 1000:
+		return 20
+	default:
+		return 2
+	}
+}
+
+func calculateWeight(method, path string, query url.Values) int {
 	switch path {
 	case "/fapi/v1/klines":
-		weight = 5
 		limitInt, _ := strconv.Atoi(query.Get("limit"))
-		if limitInt >= 1 && limitInt < 100 {
-			weight = 1
-		} else if limitInt >= 100 && limitInt < 500 {
-			weight = 2
-		} else if limitInt >= 500 && limitInt <= 1000 {
-			weight = 5
-		} else if limitInt > 1000 && limitInt <= 1500 {
-			weight = 10
-		}
+		return getKlinesWeight(limitInt)
 	case "/api/v3/depth":
 		limitInt, _ := strconv.Atoi(query.Get("limit"))
-		if limitInt >= 5 && limitInt <= 100 {
-			weight = 1
-		} else if limitInt >= 100 && limitInt < 500 {
-			weight = 2
-		} else if limitInt == 500 {
-			weight = 5
-		} else if limitInt == 1000 {
-			weight = 10
-		} else if limitInt == 5000 {
-			weight = 50
-		}
+		return getSpotDepthWeight(limitInt)
 	case "/fapi/v1/depth":
 		limitInt, _ := strconv.Atoi(query.Get("limit"))
-		if limitInt >= 5 && limitInt <= 50 {
-			weight = 2
-		} else if limitInt == 100 {
-			weight = 5
-		} else if limitInt == 500 {
-			weight = 10
-		} else if limitInt == 1000 {
-			weight = 20
-		}
+		return getFuturesDepthWeight(limitInt)
 	case "/api/v3/ticker/24hr", "/fapi/v1/ticker/24hr":
 		if query.Get("symbol") == "" {
-			weight = 40
+			return 40
 		}
+		return 1
 	case "/api/v3/exchangeInfo", "/fapi/v1/exchangeInfo", "/api/v3/account", "/api/v3/myTrades":
-		weight = 10
+		return 10
 	case "/api/v3/order":
 		if method == http.MethodGet {
-			weight = 2
+			return 2
 		}
+		return 1
 	case "/fapi/v1/userTrades", "/fapi/v2/account":
-		weight = 5
-
+		return 5
+	default:
+		return 1
 	}
+}
+
+func RateWait(ctx context.Context, class Class, method, path string, query url.Values) error {
+	weight := calculateWeight(method, path, query)
 
 	if class == SPOT {
-		SpotLimiter.WaitN(ctx, weight)
+		return SpotLimiter.WaitN(ctx, weight)
 	} else {
-		FuturesLimiter.WaitN(ctx, weight)
+		return FuturesLimiter.WaitN(ctx, weight)
 	}
 }

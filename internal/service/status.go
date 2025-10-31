@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// StatusTracker tracks the overall status of the proxy service
+// StatusTracker tracks the overall status of the proxy service.
 type StatusTracker struct {
 	mu          sync.RWMutex
 	startTime   time.Time
@@ -21,7 +21,7 @@ var (
 	statusTrackerOnce sync.Once
 )
 
-// GetStatusTracker returns the global status tracker instance
+// GetStatusTracker returns the global status tracker instance.
 func GetStatusTracker() *StatusTracker {
 	statusTrackerOnce.Do(func() {
 		statusTracker = &StatusTracker{
@@ -32,7 +32,7 @@ func GetStatusTracker() *StatusTracker {
 	return statusTracker
 }
 
-// Status represents the current status of the proxy
+// Status represents the current status of the proxy.
 type Status struct {
 	Service     string    `json:"service"`
 	Healthy     bool      `json:"healthy"`
@@ -46,7 +46,7 @@ type Status struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// GetStatus returns the current status
+// GetStatus returns the current status.
 func (st *StatusTracker) GetStatus() Status {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
@@ -58,7 +58,7 @@ func (st *StatusTracker) GetStatus() Status {
 	}
 
 	status := Status{
-		Service:   "binance-proxy",
+		Service:   "github.com/stash86/binance-proxy",
 		Healthy:   st.isHealthy,
 		StartTime: st.startTime,
 		Uptime:    uptime.String(),
@@ -76,14 +76,14 @@ func (st *StatusTracker) GetStatus() Status {
 	return status
 }
 
-// RecordRequest increments the request counter
+// RecordRequest increments the request counter.
 func (st *StatusTracker) RecordRequest() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.requests++
 }
 
-// RecordError increments the error counter and records the error
+// RecordError increments the error counter and records the error.
 func (st *StatusTracker) RecordError(err error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -91,20 +91,20 @@ func (st *StatusTracker) RecordError(err error) {
 	st.lastError = err
 	st.lastErrorAt = time.Now()
 
-	// Consider service unhealthy if error rate is too high
+	// Consider service unhealthy if error rate is too high.
 	if st.requests > 100 && float64(st.errors)/float64(st.requests) > 0.1 {
 		st.isHealthy = false
 	}
 }
 
-// SetHealthy manually sets the health status
+// SetHealthy manually sets the health status.
 func (st *StatusTracker) SetHealthy(healthy bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.isHealthy = healthy
 }
 
-// Reset resets all counters (useful for testing)
+// Reset resets all counters (useful for testing).
 func (st *StatusTracker) Reset() {
 	st.mu.Lock()
 	defer st.mu.Unlock()

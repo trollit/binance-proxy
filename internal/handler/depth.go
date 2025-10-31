@@ -74,5 +74,8 @@ func (s *Handler) depth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write(buf.Bytes())
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }

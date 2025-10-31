@@ -7,6 +7,15 @@ LD_FLAGS 				:= -X main.Version='$(GOLDFLAGS_VERSION)' -X main.Buildtime='$(GOLD
 SOURCE_FILES 			?= ./internal/... ./pkg/... ./cmd/...
 UNAME 					:= $(uname -s)
 
+BIN_DIR := bin
+TOOLS_BIN_DIR := $(shell pwd)/$(BIN_DIR)
+$(TOOLS_BIN_DIR):
+	mkdir -p $(TOOLS_BIN_DIR)
+
+GOLANGCI_VER := 2.5.0
+GOLANGCI_BIN := golangci
+GOLANGCI := $(TOOLS_BIN_DIR)/$(GOLANGCI_BIN)-$(GOLANGCI_VER)
+
 $(info GOLDFLAGS_VERSION=$(GOLDFLAGS_VERSION))
 $(info GOLDFLAGS_BUILD_TIME=$(GOLDFLAGS_BUILD_TIME))
 $(info LD_FLAGS=$(LD_FLAGS))
@@ -63,7 +72,9 @@ vet: ### Vet
 
 ### Lint
 .PHONY: lint
-lint: fmt vet
+lint: $(GOLANGCI) fmt vet
+	$(GOLANGCI) run -c .golangci.yml -v
+
 
 ### Clean test 
 .PHONY: test-clean
@@ -77,3 +88,14 @@ test: lint ### Run tests
 .PHONY: cover
 cover: test ### Run tests and generate coverage
 	@go tool cover -html=cover.out -o=cover.html
+
+
+$(GOLANGCI): $(TOOLS_BIN_DIR)
+ifeq (,$(wildcard $(GOLANGCI)))
+	mkdir -p /tmp/golangci && \
+	cd /tmp/golangci && \
+	curl -L https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_VER)/golangci-lint-$(GOLANGCI_VER)-linux-amd64.tar.gz -o golangci-lint-$(GOLANGCI_VER)-linux-amd64.tar.gz && \
+	tar xvf golangci-lint-$(GOLANGCI_VER)-linux-amd64.tar.gz && \
+	mv golangci-lint-$(GOLANGCI_VER)-linux-amd64/golangci-lint $(GOLANGCI) && \
+	ln -sf $(GOLANGCI) $(TOOLS_BIN_DIR)/$(GOLANGCI_BIN)
+endif

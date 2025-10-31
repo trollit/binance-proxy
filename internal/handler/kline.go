@@ -1,23 +1,31 @@
 package handler
 
 import (
-	"binance-proxy/internal/service"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
+	logger := s.logger.With(
+		"class", s.class,
+		"method", r.Method,
+		"uri", r.RequestURI,
+		"remote", r.RemoteAddr,
+	)
+
 	// Check if API is banned
-	banDetector := service.GetBanDetector()
-	if banDetector.IsBanned(s.class) {
-		log.Debugf("%s klines request returning empty due to API ban", s.class)
+	if s.banDetector.IsBanned(s.class) {
+		logger.Debug("klines request returning empty due to API ban")
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Data-Source", "ban-protection")
-		w.Write([]byte("[]"))
+
+		_, err := w.Write([]byte("[]"))
+		if err != nil {
+			s.logger.Error("Failed to write ban protection response", "err", err)
+		}
+
 		return
 	}
 
@@ -32,14 +40,14 @@ func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case err != nil, limitInt <= 0, limitInt > 1000, r.URL.Query().Get("startTime") != "", r.URL.Query().Get("endTime") != "", symbol == "", interval == "":
-		log.Tracef("%s %s@%s kline proxying via REST", s.class, symbol, interval)
+		logger.Debug("Proxying via rest api", "symbol", symbol, "interval", interval, "limit", limit)
 		s.reverseProxy(w, r)
 		return
 	}
 
 	data := s.srv.Klines(symbol, interval)
 	if data == nil {
-		log.Tracef("%s %s@%s kline proxying via REST", s.class, symbol, interval)
+		logger.Debug("Proxying via rest api", "symbol", symbol, "interval", interval, "limit", limit)
 		s.reverseProxy(w, r)
 		return
 	}
@@ -76,11 +84,11 @@ func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 	currentTime := time.Now().UnixNano() / 1e6
 	if dataLen > 0 && currentTime > data[dataLen-1].CloseTime {
 		fakeKlineTimestampOpen = data[dataLen-1].CloseTime + 1
-		log.Tracef("%s %s@%s kline requested for %s but not yet received", s.class, symbol, interval, strconv.FormatInt(fakeKlineTimestampOpen, 10))
+		logger.Debug("Kline requested for future timestamp", "symbol", symbol, "interval", interval, "timestamp", strconv.FormatInt(fakeKlineTimestampOpen, 10))
 	}
 
 	if s.enableFakeKline && dataLen > 0 && currentTime > data[dataLen-1].CloseTime {
-		log.Tracef("%s %s@%s kline faking candle for timestamp %s", s.class, symbol, interval, strconv.FormatInt(fakeKlineTimestampOpen, 10))
+		logger.Debug("Kline faking candle for timestamp", "symbol", symbol, "interval", interval, "timestamp", strconv.FormatInt(fakeKlineTimestampOpen, 10))
 		lastData := data[dataLen-1]
 		fakeKline := []interface{}{
 			lastData.CloseTime + 1,
@@ -119,5 +127,7 @@ func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write(buf.Bytes())
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		logger.Error("Failed to write response", "err", err)
+	}
 }

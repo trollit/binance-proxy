@@ -2,16 +2,18 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type Service struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	logger *slog.Logger
+
+	banDetector     *BanDetector
 	class           Class
 	exchangeInfoSrv *ExchangeInfoSrv
 	klinesSrv       sync.Map // map[symbolInterval]*Klines
@@ -23,10 +25,10 @@ type Service struct {
 	lastGetTicker sync.Map // map[symbolInterval]time.Time
 }
 
-func NewService(ctx context.Context, class Class) *Service {
-	s := &Service{class: class}
+func NewService(ctx context.Context, logger *slog.Logger, bd *BanDetector, class Class) *Service {
+	s := &Service{class: class, logger: logger}
 	s.ctx, s.cancel = context.WithCancel(ctx)
-	s.exchangeInfoSrv = NewExchangeInfoSrv(s.ctx, NewSymbolInterval(s.class, "", ""))
+	s.exchangeInfoSrv = NewExchangeInfoSrv(s.ctx, logger, bd, NewSymbolInterval(s.class, "", ""))
 	s.exchangeInfoSrv.Start()
 
 	go func() {
@@ -57,7 +59,8 @@ func (s *Service) autoRemoveExpired() {
 		if t, ok := s.lastGetKlines.Load(si); ok {
 			expiry := 2 * INTERVAL_2_DURATION[si.Interval]
 			if now.Sub(t.(time.Time)) > expiry {
-				log.Debugf("%s %s@%s kline websocket closed after being idle for %.0fs.", si.Class, si.Symbol, si.Interval, expiry.Seconds())
+				s.logger.Debug("Kline websocket closed after being idle", "class", si.Class, "symbol", si.Symbol, "interval", si.Interval, "duration", expiry.Seconds())
+				// Remove from all caches
 				s.lastGetKlines.Delete(si)
 				s.klinesSrv.Delete(si)
 				srv.Stop()
@@ -74,7 +77,7 @@ func (s *Service) autoRemoveExpired() {
 		if t, ok := s.lastGetDepth.Load(si); ok {
 			expiry := 2 * time.Minute
 			if now.Sub(t.(time.Time)) > expiry {
-				log.Debugf("%s %s depth websocket closed after being idle for %.0fs.", si.Class, si.Symbol, expiry.Seconds())
+				s.logger.Debug("Depth websocket closed after being idle", "class", si.Class, "symbol", si.Symbol, "duration", expiry.Seconds())
 				s.lastGetDepth.Delete(si)
 				s.depthSrv.Delete(si)
 				srv.Stop()
@@ -91,7 +94,8 @@ func (s *Service) autoRemoveExpired() {
 		if t, ok := s.lastGetTicker.Load(si); ok {
 			expiry := 2 * time.Minute
 			if now.Sub(t.(time.Time)) > expiry {
-				log.Debugf("%s %s ticker24hr websocket closed after being idle for %.0fs.", si.Class, si.Symbol, expiry.Seconds())
+				s.logger.Debug("Ticker websocket closed after being idle", "class", si.Class, "symbol", si.Symbol, "duration", expiry.Seconds())
+				// Remove from all caches
 				s.lastGetTicker.Delete(si)
 				s.tickerSrv.Delete(si)
 				srv.Stop()
@@ -107,7 +111,7 @@ func (s *Service) Ticker(symbol string) *Ticker24hr {
 	si := NewSymbolInterval(s.class, symbol, "")
 	srv, loaded := s.tickerSrv.Load(*si)
 	if !loaded {
-		if srv, loaded = s.tickerSrv.LoadOrStore(*si, NewTickerSrv(s.ctx, si)); !loaded {
+		if srv, loaded = s.tickerSrv.LoadOrStore(*si, NewTickerSrv(s.ctx, s.logger, si)); !loaded {
 			srv.(*TickerSrv).Start()
 		}
 	}
@@ -124,7 +128,7 @@ func (s *Service) Klines(symbol, interval string) []*Kline {
 	si := NewSymbolInterval(s.class, symbol, interval)
 	srv, loaded := s.klinesSrv.Load(*si)
 	if !loaded {
-		if srv, loaded = s.klinesSrv.LoadOrStore(*si, NewKlinesSrv(s.ctx, si)); !loaded {
+		if srv, loaded = s.klinesSrv.LoadOrStore(*si, NewKlinesSrv(s.ctx, s.logger, s.banDetector, si)); !loaded {
 			srv.(*KlinesSrv).Start()
 		}
 	}
@@ -137,7 +141,7 @@ func (s *Service) Depth(symbol string) *Depth {
 	si := NewSymbolInterval(s.class, symbol, "")
 	srv, loaded := s.depthSrv.Load(*si)
 	if !loaded {
-		if srv, loaded = s.depthSrv.LoadOrStore(*si, NewDepthSrv(s.ctx, si)); !loaded {
+		if srv, loaded = s.depthSrv.LoadOrStore(*si, NewDepthSrv(s.ctx, s.logger, si)); !loaded {
 			srv.(*DepthSrv).Start()
 		}
 	}

@@ -2,14 +2,13 @@ package service
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
-	"binance-proxy/internal/tool"
-
-	log "github.com/sirupsen/logrus"
+	"github.com/stash86/binance-proxy/internal/tool"
 )
 
 type ExchangeInfoSrv struct {
@@ -17,6 +16,9 @@ type ExchangeInfoSrv struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	banDetector *BanDetector
+	logger      *slog.Logger
 
 	initCtx  context.Context
 	initDone context.CancelFunc
@@ -26,7 +28,7 @@ type ExchangeInfoSrv struct {
 	exchangeInfo []byte
 }
 
-// HTTP client pool for connection reuse
+// HTTP client pool for connection reuse.
 var (
 	httpClientOnce sync.Once
 	httpClient     *http.Client
@@ -50,12 +52,16 @@ func getHTTPClient() *http.Client {
 	return httpClient
 }
 
-func NewExchangeInfoSrv(ctx context.Context, si *symbolInterval) *ExchangeInfoSrv {
+func NewExchangeInfoSrv(ctx context.Context, logger *slog.Logger, bd *BanDetector, si *symbolInterval) *ExchangeInfoSrv {
 	s := &ExchangeInfoSrv{
-		si:         si,
-		refreshDur: 60 * time.Second,
+		banDetector: bd,
+		si:          si,
+		refreshDur:  60 * time.Second,
+		logger:      logger,
 	}
-	log.Tracef("%s exchangeInfo initialization with refresh of %.0fs.", s.si.Class, s.refreshDur.Seconds())
+
+	logger.Debug("ExchangeInfoSrv initialization", "class", s.si.Class, "refreshDur", s.refreshDur.Seconds())
+
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.initCtx, s.initDone = context.WithCancel(context.Background())
 
@@ -81,7 +87,7 @@ func (s *ExchangeInfoSrv) Start() {
 	}()
 }
 
-// Nothing to do
+// Nothing to do.
 func (s *ExchangeInfoSrv) Stop() {}
 
 func (s *ExchangeInfoSrv) GetExchangeInfo() []byte {
@@ -102,33 +108,36 @@ func (s *ExchangeInfoSrv) reTryRefreshExchangeInfo() {
 
 func (s *ExchangeInfoSrv) refreshExchangeInfo() error {
 	// Check if API is banned
-	banDetector := GetBanDetector()
-	if banDetector.IsBanned(s.si.Class) {
-		log.Debugf("%s exchangeInfo refresh skipped due to API ban", s.si.Class)
+	if s.banDetector.IsBanned(s.si.Class) {
+		s.logger.Debug("ExchangeInfo refresh skipped due to API ban", "class", s.si.Class)
 		return nil // Don't retry during ban
 	}
 
 	var url string
 	if s.si.Class == SPOT {
 		url = "https://api.binance.com/api/v3/exchangeInfo"
-		RateWait(s.ctx, s.si.Class, http.MethodGet, "/api/v3/exchangeInfo", nil)
+		if err := RateWait(s.ctx, s.si.Class, http.MethodGet, "/api/v3/exchangeInfo", nil); err != nil {
+			return err
+		}
 	} else {
 		url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-		RateWait(s.ctx, s.si.Class, http.MethodGet, "/fapi/v1/exchangeInfo", nil)
+		if err := RateWait(s.ctx, s.si.Class, http.MethodGet, "/fapi/v1/exchangeInfo", nil); err != nil {
+			return err
+		}
 	}
 
 	// Use pooled HTTP client instead of http.Get()
 	client := getHTTPClient()
 	req, err := http.NewRequestWithContext(s.ctx, http.MethodGet, url, nil)
 	if err != nil {
-		log.Errorf("%s exchangeInfo request creation failed, error: %s.", s.si.Class, err)
+		s.logger.Error("ExchangeInfo request creation failed", "class", s.si.Class, "error", err)
 		return err
 	}
 
 	resp, err := client.Do(req)
 
 	// Check for bans
-	if banDetector.CheckResponse(s.si.Class, resp, err) {
+	if s.banDetector.CheckResponse(s.si.Class, resp, err) {
 		if resp != nil {
 			resp.Body.Close()
 		}
@@ -136,12 +145,12 @@ func (s *ExchangeInfoSrv) refreshExchangeInfo() error {
 	}
 
 	if err != nil {
-		log.Errorf("%s exchangeInfo refresh failed, error: %s.", s.si.Class, err)
+		s.logger.Error("ExchangeInfo refresh failed", "class", s.si.Class, "error", err)
 		return err
 	}
 	defer resp.Body.Close()
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -155,7 +164,7 @@ func (s *ExchangeInfoSrv) refreshExchangeInfo() error {
 
 	s.exchangeInfo = data
 
-	log.Debugf("%s exchangeInfo refreshed sucessfully.", s.si.Class)
+	s.logger.Debug("ExchangeInfo refreshed successfully", "class", s.si.Class)
 
 	return nil
 }

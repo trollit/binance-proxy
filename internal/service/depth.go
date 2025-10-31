@@ -1,24 +1,23 @@
 package service
 
 import (
-	"binance-proxy/internal/tool"
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	spot "github.com/adshao/go-binance/v2"
 	futures "github.com/adshao/go-binance/v2/futures"
+	"github.com/stash86/binance-proxy/internal/tool"
 )
 
 type DepthSrv struct {
 	rw sync.RWMutex
 
-	ctx    context.Context
-	cancel context.CancelFunc
-
+	ctx      context.Context
+	cancel   context.CancelFunc
+	logger   *slog.Logger
 	initCtx  context.Context
 	initDone context.CancelFunc
 
@@ -34,8 +33,8 @@ type Depth struct {
 	Asks         []futures.Ask
 }
 
-func NewDepthSrv(ctx context.Context, si *symbolInterval) *DepthSrv {
-	s := &DepthSrv{si: si}
+func NewDepthSrv(ctx context.Context, logger *slog.Logger, si *symbolInterval) *DepthSrv {
+	s := &DepthSrv{si: si, logger: logger}
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.initCtx, s.initDone = context.WithCancel(context.Background())
 
@@ -51,11 +50,12 @@ func (s *DepthSrv) Start() {
 
 			doneC, stopC, err := s.connect()
 			if err != nil {
-				log.Errorf("%s %s depth websocket connection error: %s.", s.si.Class, s.si.Symbol, err)
+				s.logger.Error("Depth websocket connection error", "class", s.si.Class, "symbol", s.si.Symbol, "error", err)
 				continue
 			}
 
-			log.Debugf("%s %s depth websocket connected.", s.si.Class, s.si.Symbol)
+			s.logger.Info("Depth websocket connected", "class", s.si.Class, "symbol", s.si.Symbol)
+
 			// Reset the reconnect backoff now that we have a successful connection
 			d.Reset()
 			select {
@@ -65,7 +65,7 @@ func (s *DepthSrv) Start() {
 			case <-doneC:
 			}
 
-			log.Warnf("%s %s depth websocket disconnected, trying to reconnect.", s.si.Class, s.si.Symbol)
+			s.logger.Warn("Depth websocket disconnected, trying to reconnect", "class", s.si.Class, "symbol", s.si.Symbol)
 		}
 	}()
 }
@@ -105,7 +105,8 @@ func (s *DepthSrv) wsHandlerFutures(event *futures.WsDepthEvent) {
 		Bids:         event.Bids,
 		Asks:         event.Asks,
 	}
-	log.Tracef("%s %s depth websocket message received", s.si.Class, s.si.Symbol)
+
+	s.logger.Debug("Depth websocket message received", "class", s.si.Class, "symbol", s.si.Symbol, "lastUpdateID", event.LastUpdateID)
 }
 
 func (s *DepthSrv) wsHandler(event *spot.WsPartialDepthEvent) {
@@ -123,19 +124,19 @@ func (s *DepthSrv) wsHandler(event *spot.WsPartialDepthEvent) {
 		Bids:         event.Bids,
 		Asks:         event.Asks,
 	}
-	log.Tracef("%s %s depth websocket message received", s.si.Class, s.si.Symbol)
 
+	s.logger.Debug("Depth websocket message received", "class", s.si.Class, "symbol", s.si.Symbol, "lastUpdateID", event.LastUpdateID)
 }
 
 func (s *DepthSrv) errHandler(err error) {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "context canceled"):
-		log.Warnf("%s %s depth websocket context canceled, will restart connection.", s.si.Class, s.si.Symbol)
+		s.logger.Warn("Depth websocket context canceled, will restart connection", "class", s.si.Class, "symbol", s.si.Symbol)
 	case strings.Contains(msg, "use of closed network connection"):
 		// This commonly indicates a normal remote close/rotation; treat as info/debug to reduce noise
-		log.Infof("%s %s depth websocket closed by peer; reconnecting.", s.si.Class, s.si.Symbol)
+		s.logger.Info("Depth websocket closed by peer; reconnecting", "class", s.si.Class, "symbol", s.si.Symbol)
 	default:
-		log.Errorf("%s %s depth websocket connection error: %s.", s.si.Class, s.si.Symbol, err)
+		s.logger.Error("Depth websocket connection error", "class", s.si.Class, "symbol", s.si.Symbol, "error", err)
 	}
 }

@@ -125,7 +125,7 @@ The status endpoint provides comprehensive information about the proxy service:
 ```json
 {
   "proxy_status": {
-    "service": "binance-proxy",
+    "service": "github.com/stash86/binance-proxy",
     "healthy": true,
     "start_time": "2025-06-15T10:30:00Z",
     "uptime": "2h15m30s",
@@ -535,7 +535,6 @@ By submitting a pull request to this project, you agree to license your contribu
 - [go-binance](https://github.com/adshao/go-binance/blob/master/LICENSE)
 
 - [go-flags](https://github.com/jessevdk/go-flags/blob/master/LICENSE)
-- [logrus](https://github.com/sirupsen/logrus/blob/master/LICENSE)
 - [go-time](https://cs.opensource.google/go/x/time/+/master:LICENSE)
 - [go-simplejson](https://github.com/bitly/go-simplejson/blob/master/LICENSE)
 - [websocket](https://github.com/gorilla/websocket/blob/master/LICENSE)
