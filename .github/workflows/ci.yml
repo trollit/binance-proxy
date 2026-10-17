@@ -13,13 +13,13 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-
-      - name: Check out code
-        uses: actions/checkout@v7
 
       - name: Lint
         run: make lint
@@ -27,13 +27,13 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-
-      - name: Check out code
-        uses: actions/checkout@v7
 
       - name: Build
         run: make build
