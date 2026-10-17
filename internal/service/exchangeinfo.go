@@ -87,8 +87,9 @@ func (s *ExchangeInfoSrv) Start() {
 	}()
 }
 
-// Nothing to do.
-func (s *ExchangeInfoSrv) Stop() {}
+func (s *ExchangeInfoSrv) Stop() {
+	s.cancel()
+}
 
 func (s *ExchangeInfoSrv) GetExchangeInfo() []byte {
 	<-s.initCtx.Done()

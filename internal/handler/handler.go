@@ -281,19 +281,18 @@ func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Create a fresh reverse proxy for each request to avoid shared state issues
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			if req == nil {
-				logger.Error("Request is nil in proxy director")
-				return
-			}
-
+		Rewrite: func(pr *httputil.ProxyRequest) {
 			// Set the target URL
-			req.URL.Scheme = u.Scheme
-			req.URL.Host = u.Host
-			req.Host = u.Host
+			pr.Out.URL.Scheme = u.Scheme
+			pr.Out.URL.Host = u.Host
+			pr.Out.Host = u.Host
 
 			// Preserve the original path and query
-			// req.URL.Path is already set from the original request
+			// pr.Out.URL.Path is already set from the original request
+
+			// Keep the X-Forwarded-For chain that Director used to append to
+			pr.Out.Header["X-Forwarded-For"] = pr.In.Header["X-Forwarded-For"]
+			pr.SetXForwarded()
 		},
 		Transport:  contextAwareTransport,
 		BufferPool: &bufferPool{},
@@ -355,13 +354,6 @@ func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusBadGateway)
 			_, _ = rw.Write([]byte(`{"error":"bad_gateway","message":"upstream fetch failed"}`))
 		},
-	}
-
-	// Additional safety check before calling ServeHTTP
-	if proxy.Director == nil {
-		logcache.LogOncePerDuration("error", "Proxy director is nil, cannot serve request")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
 	}
 
 	// Add panic recovery for the proxy ServeHTTP call

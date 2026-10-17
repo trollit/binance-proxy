@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const zeroDecimal = "0.0"
+
 func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 	logger := s.logger.With(
 		"class", s.class,
@@ -96,12 +98,12 @@ func (s *Handler) klines(w http.ResponseWriter, r *http.Request) {
 			lastData.Close,
 			lastData.Close,
 			lastData.Close,
-			"0.0",
+			zeroDecimal,
 			lastData.CloseTime + 1 + (lastData.CloseTime - lastData.OpenTime),
-			"0.0",
+			zeroDecimal,
 			0,
-			"0.0",
-			"0.0",
+			zeroDecimal,
+			zeroDecimal,
 			"0",
 		}
 
