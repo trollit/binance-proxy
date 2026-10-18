@@ -49,6 +49,11 @@ func NewService(ctx context.Context, logger *slog.Logger, bd *BanDetector, class
 	return s
 }
 
+func (s *Service) Stop() {
+	s.exchangeInfoSrv.Stop()
+	s.cancel()
+}
+
 func (s *Service) autoRemoveExpired() {
 	now := time.Now() // Cache time.Now() call
 

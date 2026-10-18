@@ -12,7 +12,10 @@ TOOLS_BIN_DIR := $(shell pwd)/$(BIN_DIR)
 $(TOOLS_BIN_DIR):
 	mkdir -p $(TOOLS_BIN_DIR)
 
-GOLANGCI_VER := 2.5.0
+GOLANGCI_VER := 2.15.0
+GOLANGCI_OS := $(shell go env GOOS)
+GOLANGCI_ARCH := $(shell go env GOARCH)
+GOLANGCI_PKG := golangci-lint-$(GOLANGCI_VER)-$(GOLANGCI_OS)-$(GOLANGCI_ARCH)
 GOLANGCI_BIN := golangci
 GOLANGCI := $(TOOLS_BIN_DIR)/$(GOLANGCI_BIN)-$(GOLANGCI_VER)
 
@@ -94,8 +97,8 @@ $(GOLANGCI): $(TOOLS_BIN_DIR)
 ifeq (,$(wildcard $(GOLANGCI)))
 	mkdir -p /tmp/golangci && \
 	cd /tmp/golangci && \
-	curl -L https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_VER)/golangci-lint-$(GOLANGCI_VER)-linux-amd64.tar.gz -o golangci-lint-$(GOLANGCI_VER)-linux-amd64.tar.gz && \
-	tar xvf golangci-lint-$(GOLANGCI_VER)-linux-amd64.tar.gz && \
-	mv golangci-lint-$(GOLANGCI_VER)-linux-amd64/golangci-lint $(GOLANGCI) && \
+	curl -L https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_VER)/$(GOLANGCI_PKG).tar.gz -o $(GOLANGCI_PKG).tar.gz && \
+	tar xvf $(GOLANGCI_PKG).tar.gz && \
+	mv $(GOLANGCI_PKG)/golangci-lint $(GOLANGCI) && \
 	ln -sf $(GOLANGCI) $(TOOLS_BIN_DIR)/$(GOLANGCI_BIN)
 endif

@@ -1,11 +1,11 @@
 module github.com/stash86/binance-proxy
 
-go 1.25.3
+go 1.26.0
 
 require (
-	github.com/adshao/go-binance/v2 v2.8.2
+	github.com/adshao/go-binance/v2 v2.8.12
 	github.com/jessevdk/go-flags v1.6.1
-	golang.org/x/time v0.12.0
+	golang.org/x/time v0.16.0
 )
 
 require (
@@ -13,6 +13,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	github.com/shopspring/decimal v1.5.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )

@@ -13,13 +13,13 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
 
       - name: Lint
         run: make lint
@@ -27,19 +27,19 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
 
       - name: Build
         run: make build
 
       - name: Bin
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binance-proxy
           path: ./bin/binance-proxy
@@ -49,18 +49,18 @@ jobs:
   #   name: Test
   #   runs-on: ubuntu-latest
   #   steps:  #     - name: Set up Go
-  #       uses: actions/setup-go@v5
+  #       uses: actions/setup-go@v7
   #       with:
-  #         go-version: '1.24'
+  #         go-version-file: go.mod
 
   #     - name: Check out code
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v7
 
   #     - name: Test
   #       run: make cover
 
   #     - name: Cover
-  #       uses: actions/upload-artifact@v4
+  #       uses: actions/upload-artifact@v7
   #       with:
   #         name: cover
   #         path: ./cover.html
