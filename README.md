@@ -40,6 +40,22 @@ docker run --rm -d stash86/binance-proxy:latest
 
 ℹ️ Please pay attention to configuring network access, per default the ports `8090` and `8091` are exposed, if you specify different ports via parameters, you will need to re-configure your docker setup. Please refer to the [docker network documentation](https://docs.docker.com/network/), how to adjust this inside a container.
 
+#### GitHub Container Registry
+
+Every push to `main` and every `v*` tag builds a multi-arch (`linux/amd64`, `linux/arm64`) image and pushes it to `ghcr.io/trollit/binance-proxy`. Tags: `latest` and `main` (from `main`), `sha-<short>`, and `<version>` / `<major>.<minor>` for releases.
+
+To copy an image into a local registry (log in with a PAT that has `read:packages` if the package is private):
+
+```bash
+docker login ghcr.io
+# all architectures
+docker buildx imagetools create -t registry.local:5000/binance-proxy:latest ghcr.io/trollit/binance-proxy:latest
+# or with skopeo
+skopeo copy --all docker://ghcr.io/trollit/binance-proxy:latest docker://registry.local:5000/binance-proxy:latest
+```
+
+To build locally: `docker build -t binance-proxy .`
+
 ## ⚒️ Installing from source
 
 First of all, [download](https://golang.org/dl/) and install **Go**. Version `1.17` or higher is required.
