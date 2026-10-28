@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on:
+      - default
     steps:
     - name: Checkout
       uses: actions/checkout@v7
