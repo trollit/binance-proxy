@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +107,10 @@ func (s *Handler) Router(w http.ResponseWriter, r *http.Request) {
 		s.exchangeInfo(w)
 
 	default:
+		if !s.isUpstreamPath(r.URL.Path) {
+			s.notFound(w, r)
+			break
+		}
 		s.reverseProxy(w, r)
 	}
 
@@ -377,6 +382,32 @@ func (s *Handler) reverseProxy(w http.ResponseWriter, r *http.Request) {
 	logger.Debug("Proxying request to upstream")
 	proxy.ServeHTTP(w, reqCopy)
 	logger.Debug("Request proxied to upstream")
+}
+
+// upstreamPrefixes lists the path prefixes that exist on the Binance host of each class.
+var upstreamPrefixes = map[service.Class][]string{
+	service.SPOT:    {"/api/", "/sapi/"},
+	service.FUTURES: {"/fapi/", "/futures/"},
+}
+
+// isUpstreamPath reports whether path belongs to the Binance API of the handler's class.
+// Anything else (for example a Hyperliquid client sending POST /info) is answered with 403
+// by Binance, which the ban detector would take as a ban and suspend all requests.
+func (s *Handler) isUpstreamPath(path string) bool {
+	for _, prefix := range upstreamPrefixes[s.class] {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Handler) notFound(w http.ResponseWriter, r *http.Request) {
+	logcache.LogOncePerDuration("warn", fmt.Sprintf("%s request for unknown path %s %s not forwarded", s.class, r.Method, r.URL.Path))
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Data-Source", "proxy-error")
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(`{"code":-1,"msg":"path is not a Binance API path, not forwarded"}`))
 }
 
 func (s *Handler) returnEmptyResponse(w http.ResponseWriter, r *http.Request) {
