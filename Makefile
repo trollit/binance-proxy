@@ -1,7 +1,8 @@
 PROJECT					:= binance-proxy
-VERSION					:= $(shell git describe --abbrev=0 --tags)
-COMMIT_HASH     		:= $(shell git rev-parse --short HEAD)
-GOLDFLAGS_VERSION 		:= $(VERSION)-$(COMMIT_HASH)
+# The tag when HEAD is tagged, otherwise a pseudo version: v0.0.0-<UTC commit time>-<12 char sha>.
+PSEUDO_VERSION			:= v0.0.0-$(shell TZ=UTC git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD 2>/dev/null)-$(shell git rev-parse --short=12 HEAD 2>/dev/null)
+VERSION					:= $(shell git describe --exact-match --tags 2>/dev/null || echo $(PSEUDO_VERSION))
+GOLDFLAGS_VERSION 		:= $(VERSION)
 GOLDFLAGS_BUILD_TIME	:= $(shell date -Is)
 LD_FLAGS 				:= -X main.Version='$(GOLDFLAGS_VERSION)' -X main.Buildtime='$(GOLDFLAGS_BUILD_TIME)' -s -w
 SOURCE_FILES 			?= ./internal/... ./pkg/... ./cmd/...
