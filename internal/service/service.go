@@ -26,7 +26,7 @@ type Service struct {
 }
 
 func NewService(ctx context.Context, logger *slog.Logger, bd *BanDetector, class Class) *Service {
-	s := &Service{class: class, logger: logger}
+	s := &Service{class: class, logger: logger, banDetector: bd}
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.exchangeInfoSrv = NewExchangeInfoSrv(s.ctx, logger, bd, NewSymbolInterval(s.class, "", ""))
 	s.exchangeInfoSrv.Start()
